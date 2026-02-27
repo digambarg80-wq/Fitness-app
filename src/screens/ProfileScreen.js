@@ -65,15 +65,15 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const loadStats = async () => {
-    // Mock stats - replace with actual data from backend
     setWorkoutStats({
       totalWorkouts: 24,
       totalReps: 1250,
-      totalTime: 1860, // minutes
+      totalTime: 1860,
       joinDate: 'Jan 15, 2026'
     });
   };
 
+  // 🔥 FIXED: Image picker with base64 conversion
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -85,20 +85,25 @@ export default function ProfileScreen({ navigation }) {
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.5,
+      base64: true, // 🔥 IMPORTANT: Convert to base64
     });
 
     if (!result.canceled) {
       setUploading(true);
-      // Simulate upload delay
+      
+      // Convert to base64 string for permanent storage
+      const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      
       setTimeout(() => {
-        setTempImage(result.assets[0].uri);
+        setTempImage(base64Image);
         setUploading(false);
         Alert.alert('Success', 'Image selected! Click Save to update profile.');
-      }, 1500);
+      }, 1000);
     }
   };
 
+  // 🔥 FIXED: Camera capture with base64 conversion
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
@@ -109,16 +114,21 @@ export default function ProfileScreen({ navigation }) {
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.5,
+      base64: true, // 🔥 IMPORTANT: Convert to base64
     });
 
     if (!result.canceled) {
       setUploading(true);
+      
+      // Convert to base64 string for permanent storage
+      const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      
       setTimeout(() => {
-        setTempImage(result.assets[0].uri);
+        setTempImage(base64Image);
         setUploading(false);
         Alert.alert('Success', 'Photo captured! Click Save to update profile.');
-      }, 1500);
+      }, 1000);
     }
   };
 
@@ -134,6 +144,7 @@ export default function ProfileScreen({ navigation }) {
     );
   };
 
+  // 🔥 FIXED: Save user data with base64 image
   const updateUserData = async () => {
     Keyboard.dismiss();
     try {
@@ -142,27 +153,32 @@ export default function ProfileScreen({ navigation }) {
         return;
       }
       
+      const finalImage = tempImage || profileImage;
+      
       const updatedData = { 
         ...userData, 
         ...editedData,
-        profileImage: tempImage || profileImage
+        profileImage: finalImage, // Base64 image stored permanently
+        lastUpdated: new Date().toISOString()
       };
       
       setUploading(true);
-      // Simulate save delay
-      setTimeout(async () => {
-        await AsyncStorage.setItem('userData', JSON.stringify(updatedData));
-        setUserData(updatedData);
-        setProfileImage(tempImage || profileImage);
-        setTempImage(null);
-        setEditMode(false);
-        setUploading(false);
-        Alert.alert('Success', 'Profile updated successfully');
-      }, 2000);
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('userData', JSON.stringify(updatedData));
+      
+      setUserData(updatedData);
+      setProfileImage(finalImage);
+      setTempImage(null);
+      setEditMode(false);
+      setUploading(false);
+      
+      Alert.alert('Success', 'Profile updated successfully');
       
     } catch (error) {
       setUploading(false);
       Alert.alert('Error', 'Failed to update profile');
+      console.log('Update error:', error);
     }
   };
 
@@ -202,9 +218,13 @@ export default function ProfileScreen({ navigation }) {
         {/* Profile Picture */}
         <View className="items-center mb-6">
           <TouchableOpacity onPress={showImagePickerOptions} className="relative" disabled={uploading}>
-            <View className="w-28 h-28 bg-gray-300 rounded-full items-center justify-center">
+            <View className="w-28 h-28 bg-gray-300 rounded-full items-center justify-center overflow-hidden">
               {profileImage || tempImage ? (
-                <Image source={{ uri: tempImage || profileImage }} className="w-28 h-28 rounded-full" />
+                <Image 
+                  source={{ uri: tempImage || profileImage }} 
+                  className="w-28 h-28 rounded-full" 
+                  resizeMode="cover"
+                />
               ) : (
                 <Text className="text-5xl text-gray-600">
                   {userData?.username?.charAt(0).toUpperCase() || 'U'}

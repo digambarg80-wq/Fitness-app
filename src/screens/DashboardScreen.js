@@ -6,13 +6,16 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  Modal
+  Modal,
+  Image
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI } from '../services/api';
 import VoiceCoach from '../services/VoiceCoach';
+import { useTheme } from '../context/ThemeContext';
 
 export default function DashboardScreen({ navigation }) {
+  const { darkMode } = useTheme();
   const [userData, setUserData] = useState(null);
   const [todayProgress, setTodayProgress] = useState({
     pushups: 0,
@@ -28,7 +31,7 @@ export default function DashboardScreen({ navigation }) {
     loadUserData();
     
     const unsubscribe = navigation.addListener('focus', () => {
-      loadUserData();
+      loadUserData(); // Refresh when screen focuses
     });
 
     return unsubscribe;
@@ -36,7 +39,7 @@ export default function DashboardScreen({ navigation }) {
 
   const loadUserData = async () => {
     try {
-      // 🔥 Pehle local storage se data load karo
+      // Sirf local storage se data load karo - NO AUTO BACKEND FETCH
       const localData = await AsyncStorage.getItem('userData');
       if (localData) {
         const parsedData = JSON.parse(localData);
@@ -45,20 +48,9 @@ export default function DashboardScreen({ navigation }) {
         if (parsedData.dailyProgress) {
           setTodayProgress(parsedData.dailyProgress);
         }
-      }
-      
-      // 🔥 Backend se latest profile fetch karo
-      try {
-        const token = await AsyncStorage.getItem('token');
-        if (token) {
-          const response = await authAPI.getProfile();
-          if (response.data.success) {
-            setUserData(response.data.user);
-            await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
-          }
-        }
-      } catch (error) {
-        console.log('Profile fetch error:', error);
+      } else {
+        // Agar koi data nahi hai toh login pe bhejo
+        navigation.replace('Login');
       }
       
       setLoading(false);
@@ -167,17 +159,24 @@ export default function DashboardScreen({ navigation }) {
     );
   };
 
+  const theme = {
+    bg: darkMode ? 'bg-gray-900' : 'bg-gray-50',
+    text: darkMode ? 'text-white' : 'text-gray-800',
+    subText: darkMode ? 'text-gray-300' : 'text-gray-600',
+    cardBg: darkMode ? 'bg-gray-800' : 'bg-white',
+  };
+
   if (loading) {
     return (
-      <View className="flex-1 justify-center items-center bg-gray-50">
+      <View className={`flex-1 justify-center items-center ${theme.bg}`}>
         <ActivityIndicator size="large" color="#007AFF" />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-gray-50">
-      {/* Header with Profile Menu */}
+    <View className={`flex-1 ${theme.bg}`}>
+      {/* Header with Profile Image */}
       <View className="bg-primary pt-12 pb-4 px-5">
         <View className="flex-row justify-between items-center">
           <View>
@@ -192,9 +191,16 @@ export default function DashboardScreen({ navigation }) {
             onPress={() => setShowMenu(true)}
           >
             <View className="w-12 h-12 bg-white rounded-full items-center justify-center">
-              <Text className="text-primary text-xl font-bold">
-                {userData?.username?.charAt(0).toUpperCase() || 'U'}
-              </Text>
+              {userData?.profileImage ? (
+                <Image 
+                  source={{ uri: userData.profileImage }} 
+                  className="w-12 h-12 rounded-full" 
+                />
+              ) : (
+                <Text className="text-primary text-xl font-bold">
+                  {userData?.username?.charAt(0).toUpperCase() || 'U'}
+                </Text>
+              )}
             </View>
           </TouchableOpacity>
         </View>
@@ -251,7 +257,7 @@ export default function DashboardScreen({ navigation }) {
           return (
             <TouchableOpacity
               key={exercise.id}
-              className="bg-white p-3 rounded-xl mb-2"
+              className={`${theme.cardBg} p-3 rounded-xl mb-2`}
               onPress={() => navigation.navigate('Workout', {
                 exerciseType: exercise.id,
                 exerciseName: exercise.name,
@@ -266,7 +272,7 @@ export default function DashboardScreen({ navigation }) {
                 </View>
                 <View className="flex-1">
                   <View className="flex-row justify-between items-center">
-                    <Text className="font-bold text-gray-800">{exercise.name}</Text>
+                    <Text className={`font-bold ${theme.text}`}>{exercise.name}</Text>
                     <Text className="text-xs text-gray-500">
                       {exercise.current}/{exercise.target} {exercise.unit}
                     </Text>
@@ -315,9 +321,20 @@ export default function DashboardScreen({ navigation }) {
           onPress={() => setShowMenu(false)}
         >
           <View className="absolute top-20 right-5 bg-white rounded-xl shadow-lg w-56">
-            <View className="p-4 border-b border-gray-200">
-              <Text className="font-bold text-gray-800">{userData?.username}</Text>
-              <Text className="text-xs text-gray-500">{userData?.email || 'user@example.com'}</Text>
+            <View className="p-4 border-b border-gray-200 flex-row items-center">
+              <View className="w-10 h-10 bg-gray-300 rounded-full mr-3">
+                {userData?.profileImage ? (
+                  <Image source={{ uri: userData.profileImage }} className="w-10 h-10 rounded-full" />
+                ) : (
+                  <Text className="text-2xl text-center mt-1">
+                    {userData?.username?.charAt(0).toUpperCase() || 'U'}
+                  </Text>
+                )}
+              </View>
+              <View>
+                <Text className="font-bold text-gray-800">{userData?.username}</Text>
+                <Text className="text-xs text-gray-500">{userData?.email || 'user@example.com'}</Text>
+              </View>
             </View>
 
             <TouchableOpacity 
@@ -329,28 +346,6 @@ export default function DashboardScreen({ navigation }) {
             >
               <Text className="text-xl mr-3">👤</Text>
               <Text className="text-gray-700">View Profile</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              className="flex-row items-center p-4 border-b border-gray-100"
-              onPress={() => {
-                setShowMenu(false);
-                navigation.navigate('Profile');
-              }}
-            >
-              <Text className="text-xl mr-3">⚙️</Text>
-              <Text className="text-gray-700">Settings</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              className="flex-row items-center p-4 border-b border-gray-100"
-              onPress={() => {
-                setShowMenu(false);
-                Alert.alert('Voice Coach', VoiceCoach.isEnabled ? 'Voice is ON' : 'Voice is OFF');
-              }}
-            >
-              <Text className="text-xl mr-3">🔊</Text>
-              <Text className="text-gray-700">Voice Settings</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 

@@ -42,6 +42,7 @@ export default function LoginScreen({ navigation }) {
     return errors;
   };
 
+  // 🔥 FIXED: Login function - Profile image preserve karta hai
   const handleAuth = async () => {
     Keyboard.dismiss();
     
@@ -83,7 +84,6 @@ export default function LoginScreen({ navigation }) {
       if (isLogin) {
         response = await authAPI.login({ email, password });
       } else {
-        // Signup with username
         response = await authAPI.register({ 
           email, 
           password,
@@ -94,8 +94,22 @@ export default function LoginScreen({ navigation }) {
         });
       }
       
+      // ✅ Sirf token save karo
       await AsyncStorage.setItem('token', response.data.token);
-      await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
+      
+      // ✅ User data save karo with profile image preservation
+      const existingData = await AsyncStorage.getItem('userData');
+      let userDataToSave = response.data.user;
+      
+      if (existingData) {
+        const parsed = JSON.parse(existingData);
+        // 🔥 IMPORTANT: Agar pehle se profile image hai toh use preserve karo
+        if (parsed.profileImage) {
+          userDataToSave.profileImage = parsed.profileImage;
+        }
+      }
+      
+      await AsyncStorage.setItem('userData', JSON.stringify(userDataToSave));
       
       setLoading(false);
       navigation.replace('Dashboard');
@@ -107,12 +121,21 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
+  const handleGoogleSignIn = () => {
+    Alert.alert(
+      'Google Sign-In',
+      'Google Sign-In will be implemented with Firebase',
+      [{ text: 'OK' }]
+    );
+  };
+
   return (
     <KeyboardAvoidingView 
       className="flex-1 bg-gray-50"
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerClassName="flex-grow" keyboardShouldPersistTaps="handled">
+        {/* Back button */}
         <TouchableOpacity 
           className="absolute top-12 left-5 z-10"
           onPress={() => {
@@ -249,6 +272,7 @@ export default function LoginScreen({ navigation }) {
             </View>
           )}
 
+          {/* Login Button */}
           <TouchableOpacity 
             className="bg-primary p-4 rounded-xl items-center mb-4"
             onPress={handleAuth}
@@ -263,13 +287,15 @@ export default function LoginScreen({ navigation }) {
             )}
           </TouchableOpacity>
 
+          {/* Google Sign-In */}
           <TouchableOpacity 
             className="bg-[#4285F4] p-4 rounded-xl items-center mb-4"
-            onPress={() => Alert.alert('Google Sign-In', 'Coming soon with Firebase')}
+            onPress={handleGoogleSignIn}
           >
             <Text className="text-white font-bold text-lg">🔵 Continue with Google</Text>
           </TouchableOpacity>
 
+          {/* Toggle between Login and Signup */}
           <TouchableOpacity onPress={() => {
             Keyboard.dismiss();
             setIsLogin(!isLogin);
