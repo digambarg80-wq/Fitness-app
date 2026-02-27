@@ -5,9 +5,12 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authAPI } from '../services/api';
+import VoiceCoach from '../services/VoiceCoach';
 
 export default function DashboardScreen({ navigation }) {
   const [userData, setUserData] = useState(null);
@@ -18,8 +21,8 @@ export default function DashboardScreen({ navigation }) {
     planks: 0
   });
   const [loading, setLoading] = useState(true);
-  const [streak, setStreak] = useState(0);
-  const [totalWorkouts, setTotalWorkouts] = useState(0);
+  const [showMenu, setShowMenu] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState('');
 
   useEffect(() => {
     loadUserData();
@@ -33,81 +36,35 @@ export default function DashboardScreen({ navigation }) {
 
   const loadUserData = async () => {
     try {
-      const data = await AsyncStorage.getItem('userData');
-      if (data) {
-        const parsedData = JSON.parse(data);
+      // 🔥 Pehle local storage se data load karo
+      const localData = await AsyncStorage.getItem('userData');
+      if (localData) {
+        const parsedData = JSON.parse(localData);
         setUserData(parsedData);
         
         if (parsedData.dailyProgress) {
           setTodayProgress(parsedData.dailyProgress);
         }
-        
-        // Calculate streak
-        if (parsedData.workoutHistory) {
-          calculateStreak(parsedData.workoutHistory);
-          setTotalWorkouts(parsedData.workoutHistory.length);
-        }
-      } else {
-        navigation.replace('Setup');
       }
+      
+      // 🔥 Backend se latest profile fetch karo
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (token) {
+          const response = await authAPI.getProfile();
+          if (response.data.success) {
+            setUserData(response.data.user);
+            await AsyncStorage.setItem('userData', JSON.stringify(response.data.user));
+          }
+        }
+      } catch (error) {
+        console.log('Profile fetch error:', error);
+      }
+      
       setLoading(false);
     } catch (error) {
       console.log('Error loading user data:', error);
       setLoading(false);
-      Alert.alert('Error', 'Failed to load user data');
-    }
-  };
-
-  const calculateStreak = (history) => {
-    if (!history || history.length === 0) {
-      setStreak(0);
-      return;
-    }
-
-    // Simple streak calculation (last 7 days)
-    const today = new Date().toDateString();
-    const lastWorkout = new Date(history[history.length - 1]?.date).toDateString();
-    
-    if (lastWorkout === today) {
-      setStreak(prev => prev + 1);
-    } else {
-      setStreak(0);
-    }
-  };
-
-  const saveProgress = async (exercise, value) => {
-    try {
-      const updatedProgress = { ...todayProgress, [exercise]: value };
-      setTodayProgress(updatedProgress);
-      
-      if (userData) {
-        const updatedUserData = {
-          ...userData,
-          dailyProgress: updatedProgress,
-          lastUpdated: new Date().toISOString()
-        };
-        
-        // Save to workout history if workout completed
-        if (value >= (userData.recommendations?.[exercise] || 0)) {
-          const historyEntry = {
-            date: new Date().toDateString(),
-            time: new Date().toLocaleTimeString(),
-            exercise,
-            reps: value,
-            target: userData.recommendations?.[exercise] || 0,
-            timestamp: new Date().toISOString()
-          };
-          
-          const history = userData.workoutHistory || [];
-          updatedUserData.workoutHistory = [...history, historyEntry];
-        }
-        
-        await AsyncStorage.setItem('userData', JSON.stringify(updatedUserData));
-        setUserData(updatedUserData);
-      }
-    } catch (error) {
-      console.log('Error saving progress:', error);
-      Alert.alert('Error', 'Failed to save progress');
     }
   };
 
@@ -118,111 +75,77 @@ export default function DashboardScreen({ navigation }) {
     return 'Good Evening 🌙';
   };
 
-  const getMotivationalQuote = () => {
-    const quotes = [
-      "The only bad workout is the one that didn't happen.",
-      "Your body can stand almost anything. It's your mind you have to convince.",
-      "Fitness is not about being better than someone else. It's about being better than you used to be.",
-      "The hard days are the best because that's when champions are made.",
-      "Strive for progress, not perfection.",
-      "You are stronger than you think!",
-      "Small progress is still progress.",
-      "Consistency over intensity.",
-      "Your future self will thank you.",
-      "Every rep brings you closer to your goal."
+  const getAIFeedback = () => {
+    const feedbacks = [
+      "🔊 Keep your back straight during push-ups",
+      "🔊 Remember to breathe deeply",
+      "🔊 Engage your core for better stability",
+      "🔊 Go slower for better muscle activation",
+      "🔊 Perfect form leads to better results"
     ];
-    return quotes[Math.floor(Math.random() * quotes.length)];
+    return feedbacks[Math.floor(Math.random() * feedbacks.length)];
   };
 
-  const getFormFeedback = (exercise, current) => {
-    if (!userData || !userData.recommendations) return null;
-    
-    const target = userData.recommendations[exercise];
-    if (!target) return null;
-    
-    if (current >= target) {
-      return { message: '✓ Goal achieved!', color: 'text-green-600', bg: 'bg-green-100' };
-    } else if (current >= target * 0.7) {
-      return { message: '👍 Great progress!', color: 'text-yellow-600', bg: 'bg-yellow-100' };
-    } else {
-      return { message: '💪 Keep going!', color: 'text-blue-600', bg: 'bg-blue-100' };
-    }
-  };
+  useEffect(() => {
+    setAiFeedback(getAIFeedback());
+    const interval = setInterval(() => {
+      const newFeedback = getAIFeedback();
+      setAiFeedback(newFeedback);
+      VoiceCoach.speak(newFeedback.replace('🔊', ''));
+    }, 30000);
 
-  const getWorkoutTypeIcon = () => {
-    if (!userData?.workoutType) return '🏋️';
-    const icons = {
-      home: '🏠',
-      gym: '🏋️',
-      yoga: '🧘',
-      cardio: '🏃'
-    };
-    return icons[userData.workoutType] || '🏋️';
-  };
+    return () => clearInterval(interval);
+  }, []);
 
-  const exercises = userData?.recommendations ? [
+  const quickActions = [
+    { id: 'library', name: 'Library', icon: '📚', color: 'bg-purple-500', screen: 'ExerciseLibrary' },
+    { id: 'progress', name: 'Progress', icon: '📊', color: 'bg-green-500', screen: 'Progress' },
+    { id: 'history', name: 'History', icon: '📜', color: 'bg-orange-500', screen: 'WorkoutHistory' },
+    { id: 'profile', name: 'Profile', icon: '👤', color: 'bg-blue-500', screen: 'Profile' },
+    { id: 'ai', name: 'AI Coach', icon: '🤖', color: 'bg-purple-600', screen: 'AIDashboard' }
+  ];
+
+  const exercises = [
     {
       id: 'pushups',
       name: 'Push-ups',
       icon: '💪',
-      color: '#FF6B6B',
-      target: userData.recommendations.pushups || 10,
-      description: 'Upper body strength',
+      target: userData?.recommendations?.pushups || 10,
+      current: todayProgress.pushups,
       unit: 'reps',
-      gradient: 'from-red-400 to-red-500'
+      ai: 'Keep back straight, elbows at 45°'
     },
     {
       id: 'squats',
       name: 'Squats',
       icon: '🦵',
-      color: '#4ECDC4',
-      target: userData.recommendations.squats || 15,
-      description: 'Lower body strength',
+      target: userData?.recommendations?.squats || 15,
+      current: todayProgress.squats,
       unit: 'reps',
-      gradient: 'from-teal-400 to-teal-500'
+      ai: 'Chest up, knees behind toes'
     },
     {
       id: 'lunges',
       name: 'Lunges',
       icon: '🏃',
-      color: '#45B7D1',
-      target: userData.recommendations.lunges || 12,
-      description: 'Legs & balance',
+      target: userData?.recommendations?.lunges || 12,
+      current: todayProgress.lunges,
       unit: 'reps',
-      gradient: 'from-blue-400 to-blue-500'
+      ai: 'Front knee at 90°, back knee接近 floor'
     },
     {
       id: 'planks',
       name: 'Planks',
       icon: '🧘',
-      color: '#96CEB4',
-      target: userData.recommendations.planks || 60,
-      description: 'Core strength',
+      target: userData?.recommendations?.planks || 60,
+      current: todayProgress.planks,
       unit: 'sec',
-      gradient: 'from-green-400 to-green-500'
+      ai: 'Straight line head to heels'
     }
-  ] : [];
+  ];
 
-  const calculateProgress = (exerciseId) => {
-    const target = exercises.find(e => e.id === exerciseId)?.target || 1;
-    const current = todayProgress[exerciseId] || 0;
+  const calculateProgress = (current, target) => {
     return Math.min(100, (current / target) * 100);
-  };
-
-  const getDailyTip = () => {
-    const tips = [
-      "🔥 Warm up for 5 minutes before starting",
-      "💧 Stay hydrated - drink water between sets",
-      "🎯 Focus on form, not speed",
-      "🌬️ Breathe deeply throughout each exercise",
-      "⏱️ Rest 30-60 seconds between exercises",
-      "📱 Track your progress daily",
-      "😴 Get 7-8 hours of sleep for recovery",
-      "🥗 Eat protein within 30 mins after workout",
-      "🎵 Listen to music for better performance",
-      "🤝 Find a workout buddy for motivation"
-    ];
-    return tips[Math.floor(Math.random() * tips.length)];
   };
 
   const handleLogout = () => {
@@ -233,270 +156,213 @@ export default function DashboardScreen({ navigation }) {
         { text: 'Cancel', style: 'cancel' },
         { 
           text: 'Logout', 
-          onPress: () => navigation.replace('Login'),
+          onPress: async () => {
+            await AsyncStorage.removeItem('token');
+            await AsyncStorage.removeItem('userData');
+            navigation.replace('Login');
+          },
           style: 'destructive'
         }
       ]
     );
   };
 
-  const quickActions = [
-    {
-      id: 'library',
-      name: 'Exercise Library',
-      icon: '📚',
-      color: 'bg-purple-500',
-      screen: 'ExerciseLibrary'
-    },
-    {
-      id: 'progress',
-      name: 'Progress',
-      icon: '📊',
-      color: 'bg-green-500',
-      screen: 'Progress'
-    },
-    {
-      id: 'history',
-      name: 'History',
-      icon: '📜',
-      color: 'bg-orange-500',
-      screen: 'WorkoutHistory'
-    },
-    {
-      id: 'profile',
-      name: 'Profile',
-      icon: '👤',
-      color: 'bg-blue-500',
-      screen: 'Profile'
-    }
-  ];
-
   if (loading) {
     return (
       <View className="flex-1 justify-center items-center bg-gray-50">
         <ActivityIndicator size="large" color="#007AFF" />
-        <Text className="mt-4 text-gray-600">Loading your dashboard...</Text>
-      </View>
-    );
-  }
-
-  if (!userData) {
-    return (
-      <View className="flex-1 justify-center items-center bg-gray-50 p-5">
-        <Text className="text-2xl mb-4">😕</Text>
-        <Text className="text-lg text-red-600 mb-5">No user data found</Text>
-        <TouchableOpacity 
-          className="bg-primary px-8 py-4 rounded-xl"
-          onPress={() => navigation.replace('Setup')}
-        >
-          <Text className="text-white font-bold">Go to Setup</Text>
-        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <View className="flex-1 bg-gray-50">
-      {/* Header with User Info */}
-      <View className="bg-primary pt-12 pb-6 px-5 rounded-b-3xl">
-        <View className="flex-row justify-between items-center mb-4">
+      {/* Header with Profile Menu */}
+      <View className="bg-primary pt-12 pb-4 px-5">
+        <View className="flex-row justify-between items-center">
           <View>
             <Text className="text-white text-2xl font-bold">{getGreeting()}</Text>
             <Text className="text-white text-lg mt-1">
-              {userData.username || 'User'}! 
-              <Text className="text-white/80 text-base ml-2">
-                {getWorkoutTypeIcon()} {userData.workoutType?.charAt(0).toUpperCase() + userData.workoutType?.slice(1) || 'Home'}
-              </Text>
+              {userData?.username || 'User'}! 
             </Text>
           </View>
           
           <TouchableOpacity 
-            className="bg-white/20 p-3 rounded-full"
-            onPress={handleLogout}
+            className="bg-white/20 p-2 rounded-full"
+            onPress={() => setShowMenu(true)}
           >
-            <View className="w-10 h-10 bg-white rounded-full items-center justify-center">
+            <View className="w-12 h-12 bg-white rounded-full items-center justify-center">
               <Text className="text-primary text-xl font-bold">
-                {userData.firstLetter || userData.username?.charAt(0).toUpperCase() || 'U'}
+                {userData?.username?.charAt(0).toUpperCase() || 'U'}
               </Text>
             </View>
           </TouchableOpacity>
         </View>
 
-        {/* Streak and Stats */}
-        <View className="flex-row justify-between mt-2">
-          <View className="bg-white/20 px-4 py-2 rounded-xl flex-1 mr-2">
+        {/* Stats Row */}
+        <View className="flex-row mt-4">
+          <View className="bg-white/20 px-3 py-2 rounded-xl flex-1 mr-2">
             <Text className="text-white/80 text-xs">🔥 Streak</Text>
-            <Text className="text-white text-xl font-bold">{streak} days</Text>
+            <Text className="text-white text-lg font-bold">0 days</Text>
           </View>
-          <View className="bg-white/20 px-4 py-2 rounded-xl flex-1 ml-2">
-            <Text className="text-white/80 text-xs">📊 Total Workouts</Text>
-            <Text className="text-white text-xl font-bold">{totalWorkouts}</Text>
+          <View className="bg-white/20 px-3 py-2 rounded-xl flex-1 ml-2">
+            <Text className="text-white/80 text-xs">📊 Workouts</Text>
+            <Text className="text-white text-lg font-bold">0</Text>
           </View>
         </View>
       </View>
 
-      <ScrollView className="flex-1 px-5 pt-5" showsVerticalScrollIndicator={false}>
-        {/* Motivational Quote */}
-        <View className="bg-white p-4 rounded-xl mb-5 shadow-sm border border-gray-100">
-          <Text className="text-gray-600 italic text-center">
-            "{getMotivationalQuote()}"
-          </Text>
+      {/* AI Feedback Banner */}
+      <View className="bg-purple-100 mx-4 mt-4 p-3 rounded-xl flex-row items-center">
+        <View className="bg-purple-500 p-2 rounded-full mr-3">
+          <Text className="text-white text-lg">🤖</Text>
         </View>
+        <View className="flex-1">
+          <Text className="text-purple-800 font-bold text-sm">AI Coach Says:</Text>
+          <Text className="text-purple-700 text-sm">{aiFeedback}</Text>
+        </View>
+        <TouchableOpacity onPress={() => VoiceCoach.speak(aiFeedback.replace('🔊', ''))}>
+          <Text className="text-purple-600">🔊</Text>
+        </TouchableOpacity>
+      </View>
 
-        {/* Quick Actions Grid */}
-        <Text className="text-lg font-bold text-gray-800 mb-3">Quick Actions</Text>
-        <View className="flex-row flex-wrap mb-6">
+      <ScrollView className="flex-1 px-4 pt-4" showsVerticalScrollIndicator={false}>
+        {/* Quick Actions */}
+        <Text className="text-sm font-bold text-gray-500 mb-2">QUICK ACTIONS</Text>
+        <View className="flex-row flex-wrap mb-4">
           {quickActions.map((action) => (
             <TouchableOpacity
               key={action.id}
-              className={`w-[48%] ${action.color} p-4 rounded-xl mb-3 mr-[4%] items-center`}
+              className={`w-[48%] ${action.color} p-3 rounded-xl mb-2 mr-[4%] items-center`}
               onPress={() => navigation.navigate(action.screen)}
             >
-              <Text className="text-3xl mb-2">{action.icon}</Text>
-              <Text className="text-white font-semibold">{action.name}</Text>
+              <Text className="text-2xl mb-1">{action.icon}</Text>
+              <Text className="text-white text-xs font-semibold">{action.name}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Today's Progress Summary */}
-        <View className="bg-white p-5 rounded-xl mb-5 shadow-sm border border-gray-100">
-          <Text className="text-lg font-bold text-gray-800 mb-4">Today's Progress</Text>
-          <View className="flex-row justify-around">
-            <View className="items-center">
-              <Text className="text-2xl font-bold text-primary">{todayProgress.pushups}</Text>
-              <Text className="text-xs text-gray-500 mt-1">Push-ups</Text>
-            </View>
-            <View className="items-center">
-              <Text className="text-2xl font-bold text-primary">{todayProgress.squats}</Text>
-              <Text className="text-xs text-gray-500 mt-1">Squats</Text>
-            </View>
-            <View className="items-center">
-              <Text className="text-2xl font-bold text-primary">{todayProgress.lunges}</Text>
-              <Text className="text-xs text-gray-500 mt-1">Lunges</Text>
-            </View>
-            <View className="items-center">
-              <Text className="text-2xl font-bold text-primary">{todayProgress.planks}s</Text>
-              <Text className="text-xs text-gray-500 mt-1">Planks</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Daily Tip */}
-        <View className="bg-blue-50 p-4 rounded-xl mb-5 border-l-4 border-primary">
-          <Text className="text-sm font-bold text-primary mb-2">💡 Daily Tip</Text>
-          <Text className="text-gray-700">{getDailyTip()}</Text>
-        </View>
-
-        {/* BMI Indicator (if available) */}
-        {userData.bmi && (
-          <View className={`p-4 rounded-xl mb-5 ${
-            userData.bmi < 18.5 ? 'bg-yellow-100' :
-            userData.bmi < 25 ? 'bg-green-100' :
-            userData.bmi < 30 ? 'bg-orange-100' : 'bg-red-100'
-          }`}>
-            <View className="flex-row justify-between items-center">
-              <View>
-                <Text className="text-sm text-gray-600">Your BMI</Text>
-                <Text className={`text-2xl font-bold ${
-                  userData.bmi < 18.5 ? 'text-yellow-600' :
-                  userData.bmi < 25 ? 'text-green-600' :
-                  userData.bmi < 30 ? 'text-orange-600' : 'text-red-600'
-                }`}>
-                  {userData.bmi}
-                </Text>
-                <Text className="text-sm text-gray-500 mt-1">
-                  {userData.bmiCategory}
-                </Text>
-              </View>
-              <Text className="text-4xl">
-                {userData.bmi < 18.5 ? '⚠️' :
-                 userData.bmi < 25 ? '✅' :
-                 userData.bmi < 30 ? '⚡' : '🔴'}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Today's Workout Section */}
-        <Text className="text-lg font-bold text-gray-800 mb-3">Today's Workout</Text>
+        {/* Today's Workout */}
+        <Text className="text-sm font-bold text-gray-500 mb-2">TODAY'S WORKOUT</Text>
         
         {exercises.map((exercise) => {
-          const feedback = getFormFeedback(exercise.id, todayProgress[exercise.id]);
-          const progress = calculateProgress(exercise.id);
+          const progress = calculateProgress(exercise.current, exercise.target);
           
           return (
             <TouchableOpacity
               key={exercise.id}
-              className="bg-white p-4 rounded-xl mb-3 shadow-sm border border-gray-100"
+              className="bg-white p-3 rounded-xl mb-2"
               onPress={() => navigation.navigate('Workout', {
                 exerciseType: exercise.id,
                 exerciseName: exercise.name,
                 targetReps: exercise.target,
                 unit: exercise.unit,
-                currentProgress: todayProgress[exercise.id],
-                onProgressUpdate: (value) => saveProgress(exercise.id, value)
+                currentProgress: exercise.current
               })}
             >
-              <View className="flex-row items-center mb-3">
-                <View className="w-12 h-12 bg-blue-100 rounded-full items-center justify-center mr-3">
-                  <Text className="text-2xl">{exercise.icon}</Text>
+              <View className="flex-row items-center">
+                <View className="w-10 h-10 bg-blue-100 rounded-full items-center justify-center mr-3">
+                  <Text className="text-xl">{exercise.icon}</Text>
                 </View>
                 <View className="flex-1">
-                  <Text className="text-lg font-bold text-gray-800">{exercise.name}</Text>
-                  <Text className="text-sm text-gray-500">{exercise.description}</Text>
-                </View>
-                <View className="bg-primary/10 px-3 py-1 rounded-full">
-                  <Text className="text-primary text-xs font-bold">
-                    {exercise.target} {exercise.unit}
-                  </Text>
-                </View>
-              </View>
-              
-              {/* Progress Bar */}
-              <View className="h-2 bg-gray-200 rounded-full mb-2">
-                <View 
-                  className={`h-2 rounded-full ${
-                    progress >= 100 ? 'bg-green-500' : 'bg-primary'
-                  }`}
-                  style={{ width: `${progress}%` }}
-                />
-              </View>
-              
-              <View className="flex-row justify-between items-center">
-                <Text className="text-sm text-gray-500">
-                  {todayProgress[exercise.id] || 0} / {exercise.target} {exercise.unit}
-                </Text>
-                {feedback && (
-                  <View className={`px-3 py-1 rounded-full ${feedback.bg}`}>
-                    <Text className={`text-xs font-semibold ${feedback.color}`}>
-                      {feedback.message}
+                  <View className="flex-row justify-between items-center">
+                    <Text className="font-bold text-gray-800">{exercise.name}</Text>
+                    <Text className="text-xs text-gray-500">
+                      {exercise.current}/{exercise.target} {exercise.unit}
                     </Text>
                   </View>
-                )}
+                  
+                  <View className="h-1.5 bg-gray-200 rounded-full mt-1">
+                    <View 
+                      className={`h-1.5 rounded-full ${progress >= 100 ? 'bg-green-500' : 'bg-primary'}`}
+                      style={{ width: `${progress}%` }}
+                    />
+                  </View>
+
+                  <Text className="text-xs text-purple-600 mt-1">
+                    💡 {exercise.ai}
+                  </Text>
+                </View>
               </View>
             </TouchableOpacity>
           );
         })}
 
-        {/* Start Workout Button */}
-        {exercises.length > 0 && (
-          <TouchableOpacity 
-            className="bg-green-500 py-4 rounded-xl items-center mb-8 mt-2"
-            onPress={() => navigation.navigate('Workout', {
-              exerciseType: exercises[0].id,
-              exerciseName: exercises[0].name,
-              targetReps: exercises[0].target,
-              unit: exercises[0].unit,
-              currentProgress: todayProgress[exercises[0].id],
-              onProgressUpdate: (value) => saveProgress(exercises[0].id, value)
-            })}
-          >
-            <Text className="text-white text-lg font-bold">
-              🚀 Quick Start {exercises[0].name}
-            </Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity 
+          className="bg-green-500 py-3 rounded-xl items-center mt-2 mb-4"
+          onPress={() => navigation.navigate('Workout', {
+            exerciseType: exercises[0].id,
+            exerciseName: exercises[0].name,
+            targetReps: exercises[0].target,
+            unit: exercises[0].unit,
+            currentProgress: exercises[0].current
+          })}
+        >
+          <Text className="text-white font-bold">🚀 Quick Start {exercises[0].name}</Text>
+        </TouchableOpacity>
       </ScrollView>
+
+      {/* Profile Menu Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showMenu}
+        onRequestClose={() => setShowMenu(false)}
+      >
+        <TouchableOpacity 
+          className="flex-1 bg-black/50"
+          activeOpacity={1}
+          onPress={() => setShowMenu(false)}
+        >
+          <View className="absolute top-20 right-5 bg-white rounded-xl shadow-lg w-56">
+            <View className="p-4 border-b border-gray-200">
+              <Text className="font-bold text-gray-800">{userData?.username}</Text>
+              <Text className="text-xs text-gray-500">{userData?.email || 'user@example.com'}</Text>
+            </View>
+
+            <TouchableOpacity 
+              className="flex-row items-center p-4 border-b border-gray-100"
+              onPress={() => {
+                setShowMenu(false);
+                navigation.navigate('Profile');
+              }}
+            >
+              <Text className="text-xl mr-3">👤</Text>
+              <Text className="text-gray-700">View Profile</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              className="flex-row items-center p-4 border-b border-gray-100"
+              onPress={() => {
+                setShowMenu(false);
+                navigation.navigate('Profile');
+              }}
+            >
+              <Text className="text-xl mr-3">⚙️</Text>
+              <Text className="text-gray-700">Settings</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              className="flex-row items-center p-4 border-b border-gray-100"
+              onPress={() => {
+                setShowMenu(false);
+                Alert.alert('Voice Coach', VoiceCoach.isEnabled ? 'Voice is ON' : 'Voice is OFF');
+              }}
+            >
+              <Text className="text-xl mr-3">🔊</Text>
+              <Text className="text-gray-700">Voice Settings</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              className="flex-row items-center p-4"
+              onPress={handleLogout}
+            >
+              <Text className="text-xl mr-3">🚪</Text>
+              <Text className="text-red-500">Logout</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }

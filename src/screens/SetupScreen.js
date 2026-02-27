@@ -13,6 +13,7 @@ import {
   Keyboard
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { userAPI } from '../services/api';
 
 const MAX_HEIGHT = 272;
 const MIN_HEIGHT = 55;
@@ -32,7 +33,7 @@ export default function SetupScreen({ navigation }) {
     weight: '',
     gender: '',
     fitnessLevel: '',
-    workoutType: 'home', // Default workout type
+    workoutType: 'home',
     goals: []
   });
 
@@ -151,128 +152,36 @@ export default function SetupScreen({ navigation }) {
   const saveUserData = async () => {
     setLoading(true);
     try {
-      const heightInMeters = parseFloat(userData.height) / 100;
-      const weight = parseFloat(userData.weight);
-      const bmi = (weight / (heightInMeters * heightInMeters)).toFixed(1);
-      const bmiInfo = getBMICategory(bmi);
-      
-      // Get recommendations based on workout type
-      const recommendations = calculateRecommendations(bmi, userData.workoutType);
-      
-      const firstLetter = userData.username.charAt(0).toUpperCase();
-      
-      const completeUserData = {
+      // 🔥 Backend API call to update profile
+      const response = await userAPI.updateProfile({
         username: userData.username,
         age: parseInt(userData.age),
-        height: parseInt(userData.height),
-        weight: parseInt(userData.weight),
-        gender: userData.gender,
-        fitnessLevel: userData.fitnessLevel,
-        workoutType: userData.workoutType,
-        goals: userData.goals,
-        firstLetter,
-        bmi: parseFloat(bmi),
-        bmiCategory: bmiInfo.category,
-        bmiColor: bmiInfo.color,
-        registrationDate: new Date().toISOString(),
-        recommendations,
-        workoutHistory: [],
-        dailyProgress: {
-          pushups: 0,
-          squats: 0,
-          lunges: 0,
-          planks: 0,
-          lastUpdated: new Date().toDateString()
-        }
+        height_cm: parseInt(userData.height),
+        weight_kg: parseInt(userData.weight),
+        fitness_level: userData.fitnessLevel,
+        workout_type: userData.workoutType,
+        goals: userData.goals
+      });
+      
+      // 🔥 Update local storage
+      const existingData = await AsyncStorage.getItem('userData');
+      const parsedData = existingData ? JSON.parse(existingData) : {};
+      
+      const updatedUserData = {
+        ...parsedData,
+        ...response.data.user,
+        ...userData
       };
       
-      // Save to AsyncStorage
-      await AsyncStorage.setItem('userData', JSON.stringify(completeUserData));
-      
-      // Verify save was successful
-      const savedData = await AsyncStorage.getItem('userData');
-      if (!savedData) {
-        throw new Error('Failed to verify save');
-      }
+      await AsyncStorage.setItem('userData', JSON.stringify(updatedUserData));
       
       setLoading(false);
       navigation.replace('Dashboard');
       
     } catch (error) {
-      console.log('Save error:', error);
       setLoading(false);
-      Alert.alert(
-        'Error', 
-        'Failed to save user data. Please try again.',
-        [
-          { text: 'Retry', onPress: () => saveUserData() },
-          { text: 'Cancel' }
-        ]
-      );
-    }
-  };
-
-  const calculateRecommendations = (bmi, workoutType) => {
-    let basePushups = 10;
-    let baseSquats = 15;
-    
-    // Adjust based on BMI
-    if (bmi > 25) {
-      basePushups = 8;
-      baseSquats = 12;
-    } else if (bmi < 18.5) {
-      basePushups = 12;
-      baseSquats = 18;
-    }
-    
-    // Adjust based on fitness level
-    if (userData.fitnessLevel === 'Beginner') {
-      basePushups = Math.floor(basePushups * 0.7);
-      baseSquats = Math.floor(baseSquats * 0.7);
-    } else if (userData.fitnessLevel === 'Advanced') {
-      basePushups = Math.floor(basePushups * 1.5);
-      baseSquats = Math.floor(baseSquats * 1.5);
-    }
-    
-    // Different recommendations based on workout type
-    switch(workoutType) {
-      case 'gym':
-        return {
-          pushups: basePushups,
-          squats: baseSquats,
-          benchPress: Math.floor(basePushups * 1.2),
-          deadlifts: Math.floor(baseSquats * 0.8),
-          lunges: Math.floor(baseSquats * 0.8),
-          planks: 60,
-          description: 'Gym workout - Focus on compound lifts'
-        };
-      case 'yoga':
-        return {
-          pushups: Math.floor(basePushups * 0.5),
-          squats: Math.floor(baseSquats * 0.7),
-          lunges: Math.floor(baseSquats * 0.6),
-          planks: 90,
-          sunSalutations: 5,
-          description: 'Yoga flow - Focus on flexibility'
-        };
-      case 'cardio':
-        return {
-          pushups: basePushups,
-          squats: baseSquats,
-          jumpingJacks: 50,
-          highKnees: 30,
-          mountainClimbers: 20,
-          planks: 45,
-          description: 'Cardio workout - Get your heart rate up'
-        };
-      default: // home workout
-        return {
-          pushups: basePushups,
-          squats: baseSquats,
-          lunges: Math.floor(baseSquats * 0.8),
-          planks: 60,
-          description: 'Home workout - No equipment needed'
-        };
+      console.log('Save error:', error.response?.data || error.message);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to save user data');
     }
   };
 
@@ -306,6 +215,35 @@ export default function SetupScreen({ navigation }) {
       return (weight / (heightInMeters * heightInMeters)).toFixed(1);
     }
     return null;
+  };
+
+  const calculateRecommendations = () => {
+    const bmi = calculateBMI();
+    let basePushups = 10;
+    let baseSquats = 15;
+    
+    if (bmi > 25) {
+      basePushups = 8;
+      baseSquats = 12;
+    } else if (bmi < 18.5) {
+      basePushups = 12;
+      baseSquats = 18;
+    }
+    
+    if (userData.fitnessLevel === 'Beginner') {
+      basePushups = Math.floor(basePushups * 0.7);
+      baseSquats = Math.floor(baseSquats * 0.7);
+    } else if (userData.fitnessLevel === 'Advanced') {
+      basePushups = Math.floor(basePushups * 1.5);
+      baseSquats = Math.floor(baseSquats * 1.5);
+    }
+    
+    return {
+      pushups: basePushups,
+      squats: baseSquats,
+      lunges: Math.floor(baseSquats * 0.8),
+      planks: 60
+    };
   };
 
   const renderStep1 = () => {
@@ -505,7 +443,7 @@ export default function SetupScreen({ navigation }) {
 
   const renderStep4 = () => {
     const bmi = calculateBMI();
-    const recommendations = calculateRecommendations(bmi, userData.workoutType);
+    const recommendations = calculateRecommendations();
     
     return (
       <View className="px-4">
@@ -543,23 +481,24 @@ export default function SetupScreen({ navigation }) {
             </Text>
           </View>
           
-          <Text className="text-gray-600 mb-4 italic">{recommendations.description}</Text>
-          
-          {Object.entries(recommendations).map(([key, value]) => {
-            if (key === 'description') return null;
-            return (
-              <View key={key} className="flex-row justify-between py-3 border-b border-gray-100">
-                <Text className="text-gray-700 capitalize">
-                  {key.replace(/([A-Z])/g, ' $1').trim()}:
-                </Text>
-                <Text className="font-bold text-primary">
-                  {value} {key.includes('planks') ? 'sec' : 'reps'}
-                </Text>
-              </View>
-            );
-          })}
+          <View className="flex-row justify-between py-3 border-b border-gray-100">
+            <Text className="text-gray-700">💪 Push-ups:</Text>
+            <Text className="font-bold text-primary">{recommendations.pushups} reps</Text>
+          </View>
+          <View className="flex-row justify-between py-3 border-b border-gray-100">
+            <Text className="text-gray-700">🦵 Squats:</Text>
+            <Text className="font-bold text-primary">{recommendations.squats} reps</Text>
+          </View>
+          <View className="flex-row justify-between py-3 border-b border-gray-100">
+            <Text className="text-gray-700">🏃 Lunges:</Text>
+            <Text className="font-bold text-primary">{recommendations.lunges} reps</Text>
+          </View>
+          <View className="flex-row justify-between py-3 border-b border-gray-100">
+            <Text className="text-gray-700">🧘 Planks:</Text>
+            <Text className="font-bold text-primary">{recommendations.planks} sec</Text>
+          </View>
 
-          {bmi >= 30 && (
+          {bmi && bmi >= 30 && (
             <View className="bg-red-50 p-4 rounded-xl mt-4 border border-red-200">
               <Text className="text-red-600 text-center">
                 ⚠️ Based on your BMI, consult with a doctor before starting.

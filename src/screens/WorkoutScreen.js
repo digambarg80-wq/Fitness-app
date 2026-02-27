@@ -3,24 +3,20 @@ import {
   View,
   Text,
   TouchableOpacity,
-  StyleSheet,
   ScrollView,
-  Alert
+  Dimensions
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as poseDetection from '../utils/poseDetection';
+import VoiceCoach from '../services/VoiceCoach';
+import { useTheme } from '../context/ThemeContext';
+
+const { width, height } = Dimensions.get('window');
 
 export default function WorkoutScreen({ route, navigation }) {
-  const { 
-    exerciseName, 
-    exerciseType, 
-    targetReps, 
-    unit,
-    currentProgress = 0,
-    onProgressUpdate 
-  } = route.params;
+  const { exerciseName, exerciseType, targetReps, unit } = route.params;
+  const { darkMode } = useTheme();
   
-  const [reps, setReps] = useState(currentProgress);
+  const [reps, setReps] = useState(0);
   const [time, setTime] = useState(0);
   const [isActive, setIsActive] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
@@ -28,18 +24,16 @@ export default function WorkoutScreen({ route, navigation }) {
   const [feedbackColor, setFeedbackColor] = useState('#007AFF');
   const [currentAngle, setCurrentAngle] = useState(0);
   const [formIssues, setFormIssues] = useState([]);
+  const [cameraFacing, setCameraFacing] = useState('front');
   
-  const lastRepState = useRef(false);
-  const detectionInterval = useRef(null);
   const cameraRef = useRef(null);
+  const detectionInterval = useRef(null);
 
   // Timer
   useEffect(() => {
     let interval = null;
     if (isActive) {
-      interval = setInterval(() => {
-        setTime((time) => time + 1);
-      }, 1000);
+      interval = setInterval(() => setTime(t => t + 1), 1000);
     }
     return () => clearInterval(interval);
   }, [isActive]);
@@ -56,10 +50,6 @@ export default function WorkoutScreen({ route, navigation }) {
         analysis = poseDetection.analyzePushUp(mockPose);
       } else if (exerciseType === 'squats') {
         analysis = poseDetection.analyzeSquat(mockPose);
-      } else if (exerciseType === 'lunges') {
-        analysis = poseDetection.analyzeLunge(mockPose);
-      } else if (exerciseType === 'planks') {
-        analysis = poseDetection.analyzePlank(mockPose);
       } else {
         analysis = { 
           repDetected: Math.random() > 0.9,
@@ -69,349 +59,167 @@ export default function WorkoutScreen({ route, navigation }) {
         };
       }
 
-      // Update feedback with color coding
-      if (analysis.formIssues && analysis.formIssues.length > 0) {
+      if (analysis.formIssues?.length > 0) {
         setFeedback(analysis.formIssues[0]);
-        setFeedbackColor('#dc3545'); // Red for wrong form
+        setFeedbackColor('#dc3545');
         setFormIssues(analysis.formIssues);
       } else {
         setFeedback(analysis.feedback || 'Good form!');
-        setFeedbackColor('#28a745'); // Green for good form
+        setFeedbackColor('#28a745');
         setFormIssues([]);
       }
       
       setCurrentAngle(Math.floor(analysis.angle || 90));
 
-      // Count reps
       if (analysis.repDetected) {
-        const newReps = reps + 1;
-        setReps(newReps);
-        if (onProgressUpdate) {
-          onProgressUpdate(newReps);
-        }
+        setReps(r => r + 1);
+        VoiceCoach.speak(`${reps + 1} reps!`);
       }
 
     }, 1000);
 
     return () => clearInterval(detectionInterval.current);
-  }, [isActive, exerciseType, reps, onProgressUpdate]);
+  }, [isActive, exerciseType]);
 
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  const formatTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+
+  const toggleCamera = () => {
+    setCameraFacing(prev => prev === 'front' ? 'back' : 'front');
   };
 
-  const getProgressPercentage = () => {
-    if (!targetReps) return 0;
-    return Math.min(100, (reps / targetReps) * 100);
+  const theme = {
+    bg: darkMode ? 'bg-gray-900' : 'bg-gray-50',
+    text: darkMode ? 'text-white' : 'text-gray-800',
+    subText: darkMode ? 'text-gray-300' : 'text-gray-600',
+    cardBg: darkMode ? 'bg-gray-800' : 'bg-white',
   };
 
   if (!permission) {
-    return <View style={styles.centered}><Text>Loading camera...</Text></View>;
+    return <View className={`flex-1 justify-center items-center ${theme.bg}`}>
+      <Text className={theme.text}>Loading camera...</Text>
+    </View>;
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.text}>Camera permission is required</Text>
-        <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
+      <View className={`flex-1 justify-center items-center p-5 ${theme.bg}`}>
+        <Text className={`text-base mb-5 ${theme.text}`}>Camera permission is required</Text>
+        <TouchableOpacity className="bg-primary px-8 py-4 rounded-xl" onPress={requestPermission}>
+          <Text className="text-white font-bold">Grant Permission</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Header with back button */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{exerciseName}</Text>
-        <View style={styles.placeholder} />
+    <ScrollView className={`flex-1 ${theme.bg}`} showsVerticalScrollIndicator={false}>
+      {/* Header */}
+      <View className="bg-primary pt-12 pb-4 px-5">
+        <View className="flex-row items-center justify-between">
+          <TouchableOpacity onPress={() => navigation.goBack()} className="p-2">
+            <Text className="text-3xl text-white">←</Text>
+          </TouchableOpacity>
+          <Text className="text-2xl font-bold text-white">{exerciseName}</Text>
+          <TouchableOpacity onPress={toggleCamera} className="p-2">
+            <Text className="text-2xl text-white">🔄</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Progress bar */}
+        <View className="mt-4">
+          <View className="h-2 bg-white/20 rounded-full">
+            <View 
+              className="h-2 bg-green-400 rounded-full"
+              style={{ width: `${Math.min(100, (reps / (targetReps || 10)) * 100)}%` }}
+            />
+          </View>
+          <Text className="text-white/80 text-xs mt-1 text-right">
+            {reps}/{targetReps || 10} {unit}
+          </Text>
+        </View>
       </View>
 
-      {/* Camera View */}
-      <View style={styles.cameraContainer}>
+      {/* Large Camera View */}
+      <View className="h-[400px] bg-black m-5 rounded-xl overflow-hidden">
         <CameraView
           ref={cameraRef}
-          style={styles.camera}
-          facing="front"
+          className="flex-1"
+          facing={cameraFacing}
           mode="video"
           autofocus="on"
         />
         
         {/* Angle overlay */}
-        <View style={styles.angleOverlay}>
-          <Text style={styles.angleText}>{currentAngle}°</Text>
+        <View className="absolute top-3 right-3 bg-black/60 px-3 py-1.5 rounded-full">
+          <Text className="text-white font-bold">{currentAngle}°</Text>
         </View>
-
-        {/* Target progress */}
-        {targetReps && (
-          <View style={styles.targetOverlay}>
-            <Text style={styles.targetText}>
-              Target: {reps}/{targetReps} {unit}
-            </Text>
-          </View>
-        )}
       </View>
-
-      {/* Progress bar */}
-      {targetReps > 0 && (
-        <View style={styles.progressBarContainer}>
-          <View 
-            style={[
-              styles.progressBar,
-              { width: `${getProgressPercentage()}%` }
-            ]} 
-          />
-        </View>
-      )}
 
       {/* Form Issues */}
       {formIssues.length > 0 && (
-        <View style={styles.issuesContainer}>
-          {formIssues.map((issue, index) => (
-            <Text key={index} style={styles.issueText}>⚠️ {issue}</Text>
+        <View className="bg-red-50 mx-5 p-3 rounded-xl">
+          {formIssues.map((issue, i) => (
+            <Text key={i} className="text-red-600 text-xs mb-1">⚠️ {issue}</Text>
           ))}
         </View>
       )}
 
       {/* Feedback */}
-      <View style={[styles.feedbackContainer, { backgroundColor: feedbackColor + '20' }]}>
-        <Text style={[styles.feedback, { color: feedbackColor }]}>
+      <View className={`mx-5 mt-3 p-3 rounded-xl`} style={{ backgroundColor: feedbackColor + '20' }}>
+        <Text className={`text-center font-bold`} style={{ color: feedbackColor }}>
           {feedback}
         </Text>
       </View>
 
-      {/* Rep counter */}
-      <Text style={styles.repCount}>{reps}</Text>
-      <Text style={styles.repLabel}>{unit?.toUpperCase() || 'REPS'}</Text>
-      <Text style={styles.timer}>{formatTime(time)}</Text>
+      {/* Rep Counter */}
+      <View className="items-center mt-5">
+        <Text className="text-6xl font-bold text-primary">{reps}</Text>
+        <Text className="text-xs text-gray-500">{unit?.toUpperCase()}</Text>
+        <Text className="text-2xl font-mono text-gray-600 mt-2">{formatTime(time)}</Text>
+      </View>
 
       {/* Controls */}
-      <View style={styles.buttonRow}>
+      <View className="flex-row justify-around px-5 mt-5">
         {!isActive ? (
           <TouchableOpacity 
-            style={[styles.button, styles.startButton]} 
+            className="bg-green-500 flex-1 py-4 rounded-xl mr-2 items-center"
             onPress={() => setIsActive(true)}
           >
-            <Text style={styles.buttonText}>Start</Text>
+            <Text className="text-white font-bold">Start</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity 
-            style={[styles.button, styles.pauseButton]} 
+            className="bg-yellow-500 flex-1 py-4 rounded-xl mr-2 items-center"
             onPress={() => setIsActive(false)}
           >
-            <Text style={styles.buttonText}>Pause</Text>
+            <Text className="text-white font-bold">Pause</Text>
           </TouchableOpacity>
         )}
 
         <TouchableOpacity 
-          style={[styles.button, styles.resetButton]} 
+          className="bg-red-500 flex-1 py-4 rounded-xl ml-2 items-center"
           onPress={() => {
+            setIsActive(false);
             setReps(0);
             setTime(0);
-            setIsActive(false);
             setFeedback('Ready to start');
             setFeedbackColor('#007AFF');
             setFormIssues([]);
-            if (onProgressUpdate) {
-              onProgressUpdate(0);
-            }
           }}
         >
-          <Text style={styles.buttonText}>Reset</Text>
+          <Text className="text-white font-bold">Reset</Text>
         </TouchableOpacity>
       </View>
-      
-      {targetReps && reps >= targetReps && (
-        <View style={styles.congratsContainer}>
-          <Text style={styles.congratsText}>🎉 Goal achieved! Great job!</Text>
+
+      {/* Voice Commands Help */}
+      <View className={`${theme.cardBg} mx-5 mt-5 p-3 rounded-xl mb-8`}>
+        <Text className={`text-xs font-bold ${theme.text} mb-2`}>🎤 Try saying:</Text>
+        <View className="flex-row flex-wrap">
+          <Text className="bg-gray-200 px-2 py-1 rounded-full text-xs mr-1 mb-1">"how many reps"</Text>
+          <Text className="bg-gray-200 px-2 py-1 rounded-full text-xs mr-1 mb-1">"check my form"</Text>
+          <Text className="bg-gray-200 px-2 py-1 rounded-full text-xs mr-1 mb-1">"pause"</Text>
         </View>
-      )}
-    </View>
+      </View>
+    </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa'
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingTop: 50,
-    paddingBottom: 15,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0'
-  },
-  backButton: {
-    padding: 10
-  },
-  backButtonText: {
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: '600'
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333'
-  },
-  placeholder: {
-    width: 50
-  },
-  cameraContainer: {
-    height: 300,
-    backgroundColor: '#333',
-    position: 'relative'
-  },
-  camera: {
-    flex: 1
-  },
-  angleOverlay: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 8,
-    borderRadius: 5
-  },
-  angleText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  targetOverlay: {
-    position: 'absolute',
-    bottom: 10,
-    left: 10,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: 8,
-    borderRadius: 5
-  },
-  targetText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: 'bold'
-  },
-  progressBarContainer: {
-    height: 6,
-    backgroundColor: '#e0e0e0',
-    marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 3
-  },
-  progressBar: {
-    height: 6,
-    backgroundColor: '#28a745',
-    borderRadius: 3
-  },
-  issuesContainer: {
-    backgroundColor: '#fff5f5',
-    marginHorizontal: 20,
-    marginTop: 15,
-    padding: 15,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#dc3545'
-  },
-  issueText: {
-    color: '#dc3545',
-    fontSize: 14,
-    marginVertical: 2
-  },
-  feedbackContainer: {
-    marginHorizontal: 20,
-    marginTop: 15,
-    padding: 15,
-    borderRadius: 8
-  },
-  feedback: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    textAlign: 'center'
-  },
-  repCount: {
-    fontSize: 72,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    textAlign: 'center',
-    marginTop: 20
-  },
-  repLabel: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 10
-  },
-  timer: {
-    fontSize: 24,
-    fontFamily: 'monospace',
-    textAlign: 'center',
-    marginBottom: 20
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 20,
-    marginTop: 10
-  },
-  button: {
-    flex: 1,
-    padding: 15,
-    borderRadius: 8,
-    marginHorizontal: 5,
-    alignItems: 'center'
-  },
-  startButton: {
-    backgroundColor: '#28a745'
-  },
-  pauseButton: {
-    backgroundColor: '#ffc107'
-  },
-  resetButton: {
-    backgroundColor: '#dc3545'
-  },
-  permissionButton: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-    width: 200
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  text: {
-    fontSize: 16,
-    marginBottom: 20
-  },
-  congratsContainer: {
-    backgroundColor: '#d4edda',
-    margin: 20,
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center'
-  },
-  congratsText: {
-    color: '#155724',
-    fontSize: 16,
-    fontWeight: 'bold'
-  }
-});

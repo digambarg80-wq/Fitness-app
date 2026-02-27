@@ -3,6 +3,24 @@
     "name": "Fitness App",
     "slug": "fitness-app",
     "version": "1.0.0",
-    "userInterfaceStyle": "automatic"
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.digambargaikwad.fitnessapp"
+    },
+    "android": {
+      "package": "com.digambargaikwad.fitnessapp"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-camera"
+    ]
   }
 }
