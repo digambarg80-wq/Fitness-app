@@ -1,0 +1,8 @@
+{
+  "expo": {
+    "name": "Fitness App",
+    "slug": "fitness-app",
+    "version": "1.0.0",
+    "userInterfaceStyle": "automatic"
+  }
+}
